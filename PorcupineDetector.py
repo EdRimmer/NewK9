@@ -1,4 +1,7 @@
 import pvporcupine
+import asyncio
+from datetime import datetime
+import time
 from pvrecorder import PvRecorder
 import os
 
@@ -58,17 +61,18 @@ class PorcupineDetector:
                device_index=-1)
            self.recorder.start()
    
-   def waitForKeyword(self):
+   async def waitForKeyword(self):
       found=False;
       while not found:
    
-         try:
-             pcm = self.recorder.read()
+         #try:
+             pcm = await asyncio.to_thread(self.recorder.read)
+             #pcm = self.recorder.read()
              result = self.porcupine.process(pcm)
              if result >= 0:
                  print('[%s] Detected %s' % (str(datetime.now()), self.keywords[result]))
                  # Report detection
                  matching_indexes=1
                  found=True
-         except Exception:
-                _LOGGER.exception("Read exception")
+         #except Exception:
+                #print("Read exception")
