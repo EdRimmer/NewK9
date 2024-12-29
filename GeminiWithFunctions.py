@@ -9,6 +9,10 @@ import sys
 import traceback
 from google import genai
 
+#from google.genai.types import (
+#    Tool,
+#    FunctionDeclaration
+#)
 
 if sys.version_info < (3, 11, 0):
     import taskgroup, exceptiongroup
@@ -22,14 +26,112 @@ RECEIVE_SAMPLE_RATE = 24000
 MODEL = "models/gemini-2.0-flash-exp"
 
 
+def search_the_internet_func(search_term):
+    
+    # get the API KEY here: https://developers.google.com/custom-search/v1/overview
+    SEARCH_ENGINE_ID = "f666c6804cfdd4701"
+    # get your Search Engine ID on your CSE control panel
+    API_KEY = "AIzaSyA2cc0NiL4RLzYEOQWVX8TuU9cZ_ifbQ6s"
+    
+    
+    # the search query you want
+    query = "what time is it"
+    # using the first page
+    page = 1
+    # constructing the URL
+    # doc: https://developers.google.com/custom-search/v1/using_rest
+    # calculating start, (page=2) => (start=11), (page=3) => (start=21)
+    start = (page - 1) * 10 + 1
+    url = f"https://www.googleapis.com/customsearch/v1?key={API_KEY}&cx={SEARCH_ENGINE_ID}&q={query}&start={start}"
+    
+    
+    # make the API request
+    data = requests.get(url).json()
+    
+    # get the result items
+    search_items = data.get("items")
+    # iterate over 10 results found
+    for i, search_item in enumerate(search_items, start=1):
+        try:
+            long_description = search_item["pagemap"]["metatags"][0]["og:description"]
+        except KeyError:
+            long_description = "N/A"
+        # get the page title
+        title = search_item.get("title")
+        # page snippet
+        snippet = search_item.get("snippet")
+        # alternatively, you can get the HTML snippet (bolded keywords)
+        html_snippet = search_item.get("htmlSnippet")
+        # extract the page url
+        link = search_item.get("link")
+        # print the results
+        print("="*10, f"Result #{i+start-1}", "="*10)
+        print("Title:", title)
+        print("Description:", snippet)
+        print("Long description:", long_description)
+        print("URL:", link, "\n")
+
+    return search_items
+
+# Define the tool (function)
+tool_search = {
+    "function_declarations": [
+        {
+            "name": "search",
+            "description": "allows a search term to be searched on the internet.",
+            "parameters": {
+                "type": "OBJECT",
+                "properties": {
+                    "search_term": {
+                        "type": "STRING",
+                        "description": "The search term"
+                    },
+                },
+                "required": ["search_term"]
+            }
+        }
+    ]
+}
+
+
+def set_light_values(brightness, color_temp):
+
+    return {
+        "brightness": brightness,
+        "colorTemperature": color_temp,
+    }
+
+# Define the tool (function)
+tool_set_light_values = {
+    "function_declarations": [
+        {
+            "name": "set_light_values",
+            "description": "Set the brightness and color temperature of a room light.",
+            "parameters": {
+                "type": "OBJECT",
+                "properties": {
+                    "brightness": {
+                        "type": "NUMBER",
+                        "description": "Light level from 0 to 100. Zero is off and 100 is full brightness"
+                    },
+                    "color_temp": {
+                        "type": "STRING",
+                        "description": "Color temperature of the light fixture, which can be `daylight`, `cool` or `warm`."
+                    }
+                },
+                "required": ["brightness", "color_temp"]
+            }
+        }
+    ]
+}
 
 client = genai.Client(
     http_options={'api_version': 'v1alpha'}, api_key="AIzaSyAN3w3ylhcmw50uX8T6RPb7QZntgNZZi24")
 
 CONFIG={
-        "system_instruction": "you are Doctor Who's robot dog K9. Respond fairly briefly.",
+        "system_instruction": "you are Doctor Who's robot dog K9. Never respond with  generated code but consider using function calls",
         "generation_config": {"response_modalities": ["TEXT"]},
-        "tools": []  }
+        "tools": [tool_search]  }
 
 
 
@@ -129,11 +231,21 @@ class Gemini:
               return data
 
     async def run(self):
+        #config_message = await client_websocket.recv()
+        #config_data = json.loads(config_message)
+        #config = config_data.get("setup", {})
+
+        config={}
+
+        config["system_instruction"]="you are Doctor Who's robot dog K9."
+        config["generation_config"]={"response_modalities": ["TEXT"]}
+        config["tools"] = [tool_set_light_values]
 
         async with (
-            client.aio.live.connect(model=MODEL, config=CONFIG) as session,
+            client.aio.live.connect(model=MODEL, config=config) as session,
             asyncio.TaskGroup() as tg,
         ):
+            print("qq")
 
             send_text_task = tg.create_task(self.send_text())
             self.session=session
