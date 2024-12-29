@@ -46,10 +46,11 @@ class Gemini:
 
     async def send_text(self):
         while True:
-            text = await asyncio.to_thread(input, "message > ")
-            if text.lower() == "q":
-                break
-            await self.session.send(text or ".", end_of_turn=True)
+            await asyncio.sleep(10)
+            #text = await asyncio.to_thread(input, "message > ")
+            #if text.lower() == "q":
+            #   break
+            #await self.session.send(text or ".", end_of_turn=True)
 
 
 
