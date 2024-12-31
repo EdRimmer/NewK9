@@ -1,4 +1,5 @@
 from PorcupineDetector import PorcupineDetector
+import subprocess
 import time
 import paho.mqtt.client as mqtt #import the client1
 from Gemini import Gemini
@@ -42,21 +43,38 @@ class Main:
                      await self.audioInQueue1.get()    
 
 
+    async def shutdown(self):
+         print("Main received shutdown system")
+         self.mqttClient.publish("hermes/intent/StopEars","ON")
+         self.mqttClient.publish("head/eyes","OFF")
+         await asyncio.sleep(2)
+         print("Main performing  shutdown system")
+         await subprocess.run(["sudo", "shutdown", "now"])
+
     async def mainLoop(self):
        self.porcupine = PorcupineDetector()
-       self.gemini = Gemini(self.audioInQueue1)
+       self.gemini = Gemini(self.audioInQueue1, self)
+       self.mqttClient.publish("hermes/intent/StopEars","ON")
 
        while True:
-           print("into main loop")
-           self.speaking=False
-           self.wakeWordDetected=False
-           await self.porcupine.waitForKeyword()
-           self.wakeWordDetected=True
-           self.mqttClient.publish("hermes/intent/StartEars","ON")
+           try:
+              print("into main loop")
+              self.mqttClient.publish("hermes/intent/StopEars","ON")
+              self.mqttClient.publish("head/eyes","OFF")
+              self.speaking=False
+              self.wakeWordDetected=False
+              await self.porcupine.waitForKeyword()
+              self.wakeWordDetected=True
+              self.mqttClient.publish("head/eyes","ON")
+              self.mqttClient.publish("hermes/intent/StartEars","ON")
+   
+              print("Keyword detected")
+              self.gemini.cancelled=False
+              await self.gemini.run()
+              print("out of main loop")
+           except Exception as e:
+               print("Excetion in main loop:"+ str(e))
 
-           print("Keyword detected")
-           await self.gemini.run()
-           print("out of main loop")
     
     async def run(self):
         async with asyncio.TaskGroup() as tg:
@@ -75,7 +93,6 @@ class Main:
                self.speaking=False
             else:
                print("Received start speaking")
-               self.mqttClient.publish("hermes/intent/StopEars","ON")
                self.speaking=True
 
 

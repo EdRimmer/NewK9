@@ -1,4 +1,5 @@
 import aiohttp
+from IntentManager import IntentManager
 import requests
 import time
 import asyncio
@@ -26,23 +27,41 @@ MODEL = "models/gemini-2.0-flash-exp"
 client = genai.Client(
     http_options={'api_version': 'v1alpha'}, api_key="AIzaSyAN3w3ylhcmw50uX8T6RPb7QZntgNZZi24")
 
+
+system_instructions="""
+         You are Doctor Who's robot dog K9. Respond fairly briefly. 
+         If you require real time information to answer or if I am commanding you to do something then before  answering send me a request in one the following REQUEST formats and wait for the response before answering: 
+         1) REQUEST (requestWeatherInformation # weatherRequestGeographicLocation) where weatherRequestGeographicLocation is the location that the forcast is for, 
+         2) REQUEST (shutdown) where 'shutdown' or 'shutdown system' are examples that should invoke this REQUEST
+         3) REQUEST (requestTime), 
+         4) REQUEST (requestDate),
+         5) REQUEST (endOfConversation) where 'Goodbye' or 'Thank you' or 'that will be all' are examples that should invoke this REQUEST,
+      """
+
 CONFIG={
-        "system_instruction": "you are Doctor Who's robot dog K9. Respond fairly briefly.",
+        "system_instruction": system_instructions,
         "generation_config": {"response_modalities": ["TEXT"]},
         "tools": []  }
 
 
 
 class Gemini:
-    def __init__(self, queue):
+    def __init__(self, queue, manager):
         #self.audio_out_queue = asyncio.Queue()
         self.audio_out_queue = queue
-
+        self.cancelled = False
         self.session = None
 
         self.send_text_task = None
         self.lastResp = None
         self.pya = None #pyaudio.PyAudio()
+        self.intentManager=IntentManager(self)
+        self.manager=manager
+
+    async def shutdown(self):
+        print("Gemini received shutdown system")
+        await self.manager.shutdown();
+
 
     async def send_text(self):
         while True:
@@ -58,7 +77,7 @@ class Gemini:
         self.lastResp=time.time()
         while True:
             chunk = await self.audio_out_queue.get()
-            if time.time()-self.lastResp > 40:
+            if time.time()-self.lastResp > 40 or self.cancelled==True:
                print("Timeout closing connection")
                break
             await self.session.send({"data": chunk, "mime_type": "audio/pcm"})
@@ -96,11 +115,22 @@ class Gemini:
                                    if "." in text:
                                       subs=text.split(".",1)
                                       text=subs[1] 
-                                      print("sending "+subs[0])
-                                      
-                                      await self.speak(subs[0]+".")
+
+                                      if self.intentManager.isIntent(subs[0]):
+                                          resp=await self.intentManager.handleIntent(subs[0])
+                                          print("Intent manager returned:"+resp)
+                                          await self.session.send(resp, end_of_turn=True)
+                                      else:
+                                          print("sending "+subs[0])
+                                          await self.speak(subs[0]+".")
+
                        if server_content.turn_complete is not None:
                              if server_content.turn_complete:
+                                if self.intentManager.isIntent(text):
+                                  resp=await self.intentManager.handleIntent(text)
+                                  print("Intent manager returned:"+resp)
+                                  await self.session.send(resp, end_of_turn=True)
+                                else:
                                   await self.speak(text)
                                   print("sending final:"+text)
                                   text=""
@@ -108,13 +138,7 @@ class Gemini:
 
    
                        server_content.model_turn = None
-                       turn_complete = server_content.turn_complete
-                       if turn_complete:
-                           # If you interrupt the model, it sends a turn_complete.
-                           # For interruptions to work, we need to stop playback.
-                           # So empty out the audio queue because it may have loaded
-                           # much more audio than has played yet.
-                           print("Turn complete")
+
             except Exception as e: 
                 print("Exception:" + str(e))
    
